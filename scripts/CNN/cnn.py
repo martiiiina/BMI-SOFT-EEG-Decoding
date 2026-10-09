@@ -2,7 +2,7 @@
 
 Every window is treated as a one-channel image of shape (time, electrodes). Tensor shapes are
 (batch, feature maps, time, electrodes), with B = batch, C = n_channels, T = window length in samples,
-K = n_classes, T' = (T - 1) // pool_stride + 1 (T' = T for the default pool_stride = 1):
+K = n_classes:
 
   input   (B, C, T)    -> transposed and given a map axis -> (B, 1, T, C)
   1. Conv, 32 filters spanning all electrodes (1 x C)                -> ReLU            (B, 32, T, 1)
@@ -13,11 +13,10 @@ K = n_classes, T' = (T - 1) // pool_stride + 1 (T' = T for the default pool_stri
   5. Conv, K filters 1 x 1                                                              (B, K, T'', 1)
   output  mean over time -> logits (B, K) -> softmax loss
 
-T'' applies the pooling formula a second time: T'' = (T' - 1) // pool_stride + 1 (again T'' = T by default).
-
+  
 Choices the description leaves open:
-  - Convolutions after block 1 use "same" padding, because block 1 collapses the electrode axis to width 1.
-  - Pooling uses stride 1 with padding, so the time axis keeps its length (`pool_stride` changes this).
+  - Block 2,3,4 use convolution padding to keep size
+  - Pooling uses stride 1 with padding, so the time axis keeps its length (`pool_stride` changes this according to T' = (T - 1) // pool_stride + 1).
   - The 1 x 1 convolution gives one score per time step; they are averaged over time to get one
     score per class per window. The softmax is applied by the loss (`nn.CrossEntropyLoss`).
 """
@@ -66,9 +65,9 @@ class TCNN(nn.Module):
         x = self.block1(x)                  # (B, 32, T, 1)    electrode axis collapsed to width 1
         x = self.block2(x)                  # (B, 32, T', 1)
         x = self.block3(x)                  # (B, 64, T'', 1)
-        x = self.block4(x)                  # (B, 64, T'', 1)  "same" padding keeps the length
+        x = self.block4(x)                  # (B, 64, T'', 1)  padding keeps the time length
         x = self.block5(x)                  # (B, K, T'', 1)   one score per class and time step
-        return x.mean(dim=(2, 3))           # (B, K)
+        return x.mean(dim=(2, 3))           # (B, K)           one scor per class
 
 
 if __name__ == "__main__":
