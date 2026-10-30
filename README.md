@@ -49,10 +49,18 @@ This repository contains data from multiple acquisition phases, including 2024 d
 
 Run all commands from the **project root**.
 
-0. **Download the data** (needs Python 3.12+, see [`src/download/README.md`](src/download/README.md)):
+0. **Download the data** (needs Python 3.12+ and Poetry, see [`src/bmieeg/download/README.md`](src/bmieeg/download/README.md)):
    ```bash
-   python -m scripts.download.download_archive
+   poetry install
+   poetry run python -m scripts.download.download_archive --start 2026-10-01 --end 2026-10-31
    ```
+   Omit `--start`/`--end` to download every date; add `--dry-run` to only list the files.
+
+0b. **Protocol quality control** of the downloaded sessions (markers, trial timing, bad channels, line noise, motor-band response):
+   ```bash
+   poetry run python -m scripts.qc.qc_sessions --start 2026-10-01 --end 2026-10-31 --plots
+   ```
+   Prints a PASS/WARN/FAIL report per session and saves `results/qc/qc_summary.csv` (and one figure per session with `--plots`).
 
 1. **Preprocessing** (from directory containing `.xdf` files, e.g. `sub-P005`):
    ```bash

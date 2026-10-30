@@ -5,6 +5,7 @@ import os
 import requests
 
 from tqdm import tqdm
+from datetime import date
 from pathlib import PurePosixPath
 from dataclasses import dataclass
 import xml.etree.ElementTree as ET
@@ -41,7 +42,9 @@ class ArchiveStrategy(DownloadStrategy):
         self.validate(spec)
 
         # 1. Makes sure we have a folder to download to
-        os.makedirs(spec.dest, exist_ok=True)
+        dry_run = spec.extra.get("dry_run", False)
+        if not dry_run:
+            os.makedirs(spec.dest, exist_ok=True)
 
         # 2. Gets everyting inside the remote folder
         xml_text = _propfind(spec, self._auth, depth="infinity")
@@ -49,7 +52,7 @@ class ArchiveStrategy(DownloadStrategy):
 
         # 3. Iterates over every file
         ignore = set(spec.extra.get("ignore", []))
-        for item in tqdm(items, desc="Downloading files", unit="file"):
+        for item in tqdm(items, desc="Downloading files", unit="file", disable=dry_run):
             # 3.1 Get the relative path
             rel_path = _remote_relative_path(spec.dav_user, item["href"])
 
@@ -61,7 +64,17 @@ class ArchiveStrategy(DownloadStrategy):
             if any(part in ignore for part in rel_parts):
                 continue
 
-            # 3.3 Makes sub-folders if needed and downloads the files
+            # 3.3 Skips date folders outside the requested period
+            if not _in_date_range(spec, rel_path):
+                continue
+
+            # 3.4 In a dry run, only lists the files that would be downloaded
+            if dry_run:
+                if not item["is_dir"]:
+                    tqdm.write(rel_path)
+                continue
+
+            # 3.5 Makes sub-folders if needed and downloads the files
             if item["is_dir"]:
                 remote_folder = _extract_path_of_interest(rel_path, spec._dav_url)
                 folder = os.path.join(spec.dest, remote_folder)
@@ -129,6 +142,23 @@ def _remote_relative_path(dav_user: str, href: str) -> str:
         return ""
 
     raise ValueError(f"Unexpected href: {href}")
+
+def _in_date_range(spec: ArchiveSpecs, rel_path: str) -> bool:
+    """Checks the first folder under `spec.url` (a `YYYY-MM-DD` session date)
+    against `spec.extra["date_range"] = (start, end)`; both bounds are inclusive
+    and either can be None. With no range, everything is kept; with a range,
+    entries that are not date folders (e.g. `.DS_Store`) are dropped."""
+    start, end = spec.extra.get("date_range", (None, None))
+    if start is None and end is None:
+        return True
+
+    try:
+        folder = PurePosixPath(rel_path).relative_to(spec.url.strip("/")).parts[0]
+        day = date.fromisoformat(folder)
+    except (ValueError, IndexError):
+        return False
+
+    return (start is None or day >= start) and (end is None or day <= end)
 
 def _extract_path_of_interest(rel_path: str, server_path: str) -> str:
     def split_path(path: str) -> list[str]:
